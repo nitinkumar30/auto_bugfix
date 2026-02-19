@@ -1,0 +1,7 @@
+openai
+pylint
+pytest
+faiss-cpu
+sentence-transformers
+numpy
+python-dotenv

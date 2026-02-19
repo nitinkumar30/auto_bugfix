@@ -1,0 +1,14 @@
+[
+  {
+    "id": "39d4ad36-161d-44dc-be31-fdfd1ba44229",
+    "bug_snippet": "# sample_code/buggy.py\ndef add_numbers(a, b):\n    # bug: returns string instead of sum\n    return str(a + b)\n\ndef multiply(a, b):\n    return a * b\n",
+    "fix_snippet": "def add_numbers(a, b):\n    return a + b\n\ndef multiply(a, b):\n    return a * b",
+    "filename": "sample_code\\buggy.py"
+  },
+  {
+    "id": "d2695f15-4248-4ae5-8eee-51b477ed5c6c",
+    "bug_snippet": "# sample_code/buggy.py\ndef add_numbers(a, b):\n    # bug: returns string instead of sum\n    return str(a + b)\n\ndef multiply(a, b):\n    return a * b\n",
+    "fix_snippet": "def add_numbers(a, b):\n    return a + b\n\ndef multiply(a, b):\n    return a * b",
+    "filename": "sample_code\\buggy.py"
+  }
+]
