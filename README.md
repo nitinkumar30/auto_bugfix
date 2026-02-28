@@ -1,4 +1,8 @@
-🚀 Auto BugFix — AI Powered Python Code Fixer
+FOLLLOW THESE STEPS TO RUN THIS PROJECT IN YOUR DEVICE :
+
+
+
+    🚀 Auto BugFix — AI Powered Python Code Fixer
 
 An AI-powered system that:
 
@@ -135,3 +139,4 @@ Also create a file called:
 Inside it:
 
 GROQ_API_KEY=your_api_key_here
+
