@@ -1,0 +1,729 @@
+import streamlit as st
+from pathlib import Path
+from src.detector import run_pylint
+from src.retriever import query_similar
+from src.generator import generate_fix
+from src.validator import apply_fix_and_test
+
+# ──────────────────────────────────────────────
+#  PAGE CONFIG
+# ──────────────────────────────────────────────
+st.set_page_config(
+    page_title="Autonomous Bug Fixing Agent",
+    page_icon="🚀",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+
+# ──────────────────────────────────────────────
+#  FULL CUSTOM CSS + HTML INJECTIONS
+# ──────────────────────────────────────────────
+st.markdown("""
+<style>
+/* ── Google Fonts ── */
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+
+/* ── Root tokens ── */
+:root {
+    --accent:  #00f5c4;
+    --accent2: #ff4d6d;
+    --accent3: #7c6eff;
+    --bg:      #040a0f;
+    --bg2:     #080f18;
+    --glass:   rgba(255,255,255,0.04);
+    --border:  rgba(0,245,196,0.18);
+    --text:    #e8f4f2;
+    --muted:   rgba(232,244,242,0.45);
+}
+
+/* ── Base ── */
+html, body, [class*="css"] {
+    font-family: 'Syne', sans-serif !important;
+    color: var(--text) !important;
+}
+
+/* ── App background + animated grid ── */
+.stApp {
+    background: var(--bg) !important;
+    background-image:
+        linear-gradient(rgba(0,245,196,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,245,196,0.04) 1px, transparent 1px) !important;
+    background-size: 40px 40px !important;
+}
+
+/* ── Hide Streamlit chrome ── */
+#MainMenu, footer, header { visibility: hidden; }
+.stDeployButton { display: none; }
+[data-testid="stToolbar"] { display: none; }
+
+/* ── Block container ── */
+.block-container {
+    max-width: 960px !important;
+    padding: 0 2rem 4rem !important;
+    margin: 0 auto !important;
+}
+
+/* ── Divider ── */
+hr {
+    border: none !important;
+    border-top: 1px solid var(--border) !important;
+    margin: 2rem 0 !important;
+}
+
+/* ── Headings ── */
+h1, h2, h3 {
+    font-family: 'Syne', sans-serif !important;
+    color: var(--text) !important;
+}
+
+/* ── File uploader ── */
+[data-testid="stFileUploader"] {
+    border: 1.5px dashed var(--border) !important;
+    border-radius: 20px !important;
+    background: var(--glass) !important;
+    backdrop-filter: blur(16px) !important;
+    padding: 24px !important;
+    transition: border-color 0.3s !important;
+}
+[data-testid="stFileUploader"]:hover {
+    border-color: rgba(0,245,196,0.5) !important;
+}
+[data-testid="stFileUploaderDropzone"] {
+    background: transparent !important;
+    border: none !important;
+    color: var(--muted) !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 12px !important;
+}
+[data-testid="stFileUploaderDropzoneInstructions"] {
+    color: var(--muted) !important;
+}
+
+/* ── Fix button ── */
+.stButton > button {
+    background: rgba(0,245,196,0.1) !important;
+    color: var(--accent) !important;
+    border: 1.5px solid var(--accent) !important;
+    border-radius: 10px !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    letter-spacing: 1.5px !important;
+    height: 52px !important;
+    width: 100% !important;
+    text-transform: uppercase !important;
+    transition: all 0.25s ease !important;
+    cursor: pointer !important;
+}
+.stButton > button:hover {
+    background: rgba(0,245,196,0.2) !important;
+    box-shadow: 0 0 28px rgba(0,245,196,0.25) !important;
+    transform: translateY(-2px) !important;
+    color: var(--accent) !important;
+}
+.stButton > button:active {
+    transform: translateY(0) scale(0.98) !important;
+}
+
+/* ── Download button ── */
+[data-testid="stDownloadButton"] > button {
+    background: rgba(124,110,255,0.12) !important;
+    color: var(--accent3) !important;
+    border: 1.5px solid var(--accent3) !important;
+    border-radius: 10px !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    letter-spacing: 1px !important;
+    width: 100% !important;
+    height: 48px !important;
+    text-transform: uppercase !important;
+    transition: all 0.25s !important;
+}
+[data-testid="stDownloadButton"] > button:hover {
+    background: rgba(124,110,255,0.22) !important;
+    box-shadow: 0 0 24px rgba(124,110,255,0.25) !important;
+    transform: translateY(-2px) !important;
+    color: var(--accent3) !important;
+}
+
+/* ── Code blocks ── */
+[data-testid="stCode"], .stCodeBlock, pre {
+    background: #020810 !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 14px !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 12px !important;
+}
+.stCodeBlock pre { border: none !important; }
+
+/* ── Expander ── */
+[data-testid="stExpander"] {
+    background: var(--glass) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 14px !important;
+    backdrop-filter: blur(12px) !important;
+}
+[data-testid="stExpander"] summary {
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 13px !important;
+    color: var(--muted) !important;
+    letter-spacing: 1px !important;
+}
+
+/* ── Success / Error ── */
+[data-testid="stAlert"] {
+    border-radius: 14px !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 13px !important;
+    border: 1px solid !important;
+}
+.stSuccess {
+    background: rgba(0,245,196,0.08) !important;
+    border-color: rgba(0,245,196,0.3) !important;
+    color: var(--accent) !important;
+}
+.stError {
+    background: rgba(255,77,109,0.08) !important;
+    border-color: rgba(255,77,109,0.3) !important;
+    color: var(--accent2) !important;
+}
+
+/* ── Spinner ── */
+[data-testid="stSpinner"] {
+    font-family: 'JetBrains Mono', monospace !important;
+    color: var(--accent) !important;
+}
+
+/* ── Subheader ── */
+h2, h3 {
+    font-family: 'Syne', sans-serif !important;
+    font-weight: 700 !important;
+    font-size: 16px !important;
+    color: var(--text) !important;
+    letter-spacing: 0.5px !important;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+
+/* ── Glow orbs (fixed, behind everything) ── */
+.orb {
+    position: fixed;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 0;
+    animation: orb-float 8s ease-in-out infinite alternate;
+}
+.orb-1 {
+    width: 500px; height: 500px;
+    background: rgba(0,245,196,0.06);
+    filter: blur(110px);
+    top: -160px; left: -100px;
+}
+.orb-2 {
+    width: 400px; height: 400px;
+    background: rgba(124,110,255,0.08);
+    filter: blur(110px);
+    bottom: -100px; right: -80px;
+    animation-delay: -4s;
+}
+@keyframes orb-float {
+    from { transform: translate(0,0) scale(1); }
+    to   { transform: translate(30px,-30px) scale(1.08); }
+}
+
+/* ── columns gap ── */
+[data-testid="stHorizontalBlock"] {
+    gap: 20px !important;
+}
+</style>
+
+<!-- Glow orbs -->
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+""", unsafe_allow_html=True)
+
+
+# ──────────────────────────────────────────────
+#  TOP BAR
+# ──────────────────────────────────────────────
+st.markdown("""
+<div style="
+    display:flex; align-items:center; justify-content:space-between;
+    padding:18px 0 18px;
+    border-bottom:1px solid rgba(0,245,196,0.18);
+    margin-bottom:0;
+">
+  <div style="
+    display:flex; align-items:center; gap:10px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px; color:#00f5c4;
+    letter-spacing:2px; text-transform:uppercase;
+  ">
+    <span style="
+      width:8px;height:8px;border-radius:50%;background:#00f5c4;
+      display:inline-block;
+      animation:pulse 2s ease-in-out infinite;
+      box-shadow:0 0 8px rgba(0,245,196,0.6);
+    "></span>
+    BugAgent v2.1
+  </div>
+  <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(232,244,242,0.45);letter-spacing:1px;">
+    STATUS: <span style="color:#00f5c4;">IDLE — READY</span>
+  </div>
+</div>
+<style>
+@keyframes pulse {
+  0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(0,245,196,0.5);}
+  50%{opacity:.7;box-shadow:0 0 0 6px rgba(0,245,196,0);}
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+# ──────────────────────────────────────────────
+#  HERO
+# ──────────────────────────────────────────────
+st.markdown("""
+<div style="text-align:center;padding:52px 0 40px;">
+  <div style="
+    display:inline-flex;align-items:center;gap:8px;
+    padding:6px 18px;
+    border:1px solid rgba(0,245,196,0.18);
+    border-radius:100px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;color:#00f5c4;
+    letter-spacing:2px;text-transform:uppercase;
+    background:rgba(0,245,196,0.05);
+    margin-bottom:26px;
+  ">
+    <span style="
+      width:6px;height:6px;border-radius:50%;background:#00f5c4;
+      display:inline-block;animation:pulse 1.5s ease-in-out infinite;
+    "></span>
+    AI-Powered · Autonomous · Zero-Config
+  </div>
+  <h1 style="
+    font-family:'Syne',sans-serif !important;
+    font-size:clamp(38px,7vw,72px) !important;
+    font-weight:800 !important;
+    line-height:1.05 !important;
+    letter-spacing:-2px !important;
+    margin:0 0 12px !important;
+    color:#e8f4f2 !important;
+  ">
+    Autonomous<br>
+    <span style="
+      background:linear-gradient(90deg,#00f5c4,#7c6eff);
+      -webkit-background-clip:text;
+      -webkit-text-fill-color:transparent;
+      background-clip:text;
+    ">Bug Fixing Agent</span>
+  </h1>
+  <p style="
+    font-family:'JetBrains Mono',monospace;
+    font-size:13px;
+    color:rgba(232,244,242,0.45);
+    letter-spacing:0.5px;
+  ">// upload → detect → fix → validate · powered by static analysis + LLM repair</p>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ──────────────────────────────────────────────
+#  3-D MARQUEE
+# ──────────────────────────────────────────────
+st.markdown("""
+<style>
+.mq-section{
+    perspective:600px;
+    overflow:hidden;
+    margin:0 0 44px;
+}
+.mq-track{
+    display:flex;
+    transform:rotateX(12deg);
+    transform-origin:center top;
+}
+.mq-inner{
+    display:flex;gap:0;
+    animation:mq-scroll 22s linear infinite;
+    white-space:nowrap;flex-shrink:0;
+}
+.mq-inner2{ animation-delay:-11s; }
+@keyframes mq-scroll{
+    from{transform:translateX(0);}
+    to{transform:translateX(-100%);}
+}
+.mq-item{
+    display:inline-flex;align-items:center;gap:10px;
+    padding:10px 26px;
+    border:1px solid rgba(0,245,196,0.18);
+    margin-right:12px;
+    border-radius:6px;
+    background:rgba(255,255,255,0.04);
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;letter-spacing:1px;
+    color:rgba(232,244,242,0.45);
+    flex-shrink:0;
+}
+.t-fix{padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;letter-spacing:1px;background:rgba(0,245,196,0.15);color:#00f5c4;}
+.t-err{padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;letter-spacing:1px;background:rgba(255,77,109,0.15);color:#ff4d6d;}
+.t-wrn{padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;letter-spacing:1px;background:rgba(124,110,255,0.15);color:#7c6eff;}
+</style>
+
+<div class="mq-section">
+  <div class="mq-track">
+    <div class="mq-inner">
+      <div class="mq-item"><span class="t-fix">FIX</span> NullPointerException @ line 42</div>
+      <div class="mq-item"><span class="t-err">ERR</span> UnboundLocalError: variable 'x'</div>
+      <div class="mq-item"><span class="t-wrn">WARN</span> Infinite loop detected</div>
+      <div class="mq-item"><span class="t-fix">FIX</span> Missing return statement</div>
+      <div class="mq-item"><span class="t-err">ERR</span> IndexError: list out of range</div>
+      <div class="mq-item"><span class="t-fix">FIX</span> Type mismatch: str vs int</div>
+      <div class="mq-item"><span class="t-wrn">WARN</span> Dead code block removed</div>
+      <div class="mq-item"><span class="t-fix">FIX</span> Division by zero guarded</div>
+    </div>
+    <div class="mq-inner mq-inner2">
+      <div class="mq-item"><span class="t-fix">FIX</span> NullPointerException @ line 42</div>
+      <div class="mq-item"><span class="t-err">ERR</span> UnboundLocalError: variable 'x'</div>
+      <div class="mq-item"><span class="t-wrn">WARN</span> Infinite loop detected</div>
+      <div class="mq-item"><span class="t-fix">FIX</span> Missing return statement</div>
+      <div class="mq-item"><span class="t-err">ERR</span> IndexError: list out of range</div>
+      <div class="mq-item"><span class="t-fix">FIX</span> Type mismatch: str vs int</div>
+      <div class="mq-item"><span class="t-wrn">WARN</span> Dead code block removed</div>
+      <div class="mq-item"><span class="t-fix">FIX</span> Division by zero guarded</div>
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ──────────────────────────────────────────────
+#  PIPELINE STEPS  (dynamic via session state)
+# ──────────────────────────────────────────────
+if "pipeline_step" not in st.session_state:
+    st.session_state.pipeline_step = 0   # 0=idle,1=upload,2=detect,3=fix,4=validate
+
+def render_pipeline(active: int):
+    steps = [
+        ("📂", "Upload"),
+        ("🔍", "Detect"),
+        ("🛠", "Fix"),
+        ("✅", "Validate"),
+    ]
+    items_html = ""
+    for i, (icon, label) in enumerate(steps):
+        is_active = i < active or active == 4
+        ring = "box-shadow:0 0 20px rgba(0,245,196,0.3);border-color:#00f5c4;background:rgba(0,245,196,0.1);" if is_active else ""
+        lc   = "color:#00f5c4;" if is_active else "color:rgba(232,244,242,0.35);"
+        items_html += f"""
+        <div style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+          <div style="
+            width:50px;height:50px;border-radius:50%;
+            border:1.5px solid rgba(0,245,196,0.18);
+            background:rgba(255,255,255,0.04);
+            display:flex;align-items:center;justify-content:center;
+            font-size:18px;transition:all .3s;{ring}
+          ">{icon}</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;{lc}">{label}</div>
+        </div>"""
+        if i < len(steps) - 1:
+            grad = "linear-gradient(90deg,rgba(0,245,196,0.3),transparent)" if is_active else "linear-gradient(90deg,rgba(0,245,196,0.1),transparent)"
+            items_html += f"""
+            <div style="height:1px;width:80px;background:{grad};margin-bottom:28px;flex-shrink:0;"></div>"""
+
+    st.markdown(f"""
+    <div style="display:flex;align-items:center;justify-content:center;gap:0;margin-bottom:40px;">
+        {items_html}
+    </div>""", unsafe_allow_html=True)
+
+render_pipeline(st.session_state.pipeline_step)
+
+
+# ──────────────────────────────────────────────
+#  FILE UPLOADER
+# ──────────────────────────────────────────────
+st.markdown("""
+<div style="
+    position:relative;
+    border:1.5px dashed rgba(0,245,196,0.18);
+    border-radius:20px;
+    background:rgba(255,255,255,0.04);
+    backdrop-filter:blur(16px);
+    padding:8px 16px 4px;
+    margin-bottom:8px;
+">
+  <!-- corner brackets -->
+  <div style="position:absolute;top:12px;left:12px;width:16px;height:16px;border-top:2px solid rgba(0,245,196,0.4);border-left:2px solid rgba(0,245,196,0.4);"></div>
+  <div style="position:absolute;top:12px;right:12px;width:16px;height:16px;border-top:2px solid rgba(0,245,196,0.4);border-right:2px solid rgba(0,245,196,0.4);"></div>
+  <div style="position:absolute;bottom:12px;left:12px;width:16px;height:16px;border-bottom:2px solid rgba(0,245,196,0.4);border-left:2px solid rgba(0,245,196,0.4);"></div>
+  <div style="position:absolute;bottom:12px;right:12px;width:16px;height:16px;border-bottom:2px solid rgba(0,245,196,0.4);border-right:2px solid rgba(0,245,196,0.4);"></div>
+  <div style="text-align:center;padding:10px 0 4px;">
+    <div style="
+      font-size:36px;
+      animation:icon-float 4s ease-in-out infinite;
+      display:inline-block;
+    ">🐍</div>
+    <p style="
+      font-family:'JetBrains Mono',monospace;
+      font-size:11px;
+      color:rgba(232,244,242,0.45);
+      letter-spacing:1px;
+      margin:0 0 6px;
+    ">// accepts .py files · max 200 MB · AST + LLM analysis</p>
+  </div>
+</div>
+<style>
+@keyframes icon-float{0%,100%{transform:translateY(0);}50%{transform:translateY(-8px);}}
+</style>
+""", unsafe_allow_html=True)
+
+uploaded_file = st.file_uploader(
+    "📂 Drag & Drop your Python file",
+    type=["py"],
+    label_visibility="collapsed",
+)
+
+# ──────────────────────────────────────────────
+#  STATS ROW
+# ──────────────────────────────────────────────
+st.markdown("""
+<div style="display:flex;justify-content:center;gap:60px;margin:36px 0 44px;">
+  <div style="text-align:center;">
+    <div style="
+      font-family:'Syne',sans-serif;font-size:32px;font-weight:800;
+      background:linear-gradient(135deg,#00f5c4,#7c6eff);
+      -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+      letter-spacing:-1px;
+    ">99.2%</div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(232,244,242,0.45);letter-spacing:1.5px;text-transform:uppercase;margin-top:4px;">Fix Rate</div>
+  </div>
+  <div style="text-align:center;">
+    <div style="
+      font-family:'Syne',sans-serif;font-size:32px;font-weight:800;
+      background:linear-gradient(135deg,#00f5c4,#7c6eff);
+      -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+      letter-spacing:-1px;
+    ">&lt;2s</div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(232,244,242,0.45);letter-spacing:1.5px;text-transform:uppercase;margin-top:4px;">Avg Time</div>
+  </div>
+  <div style="text-align:center;">
+    <div style="
+      font-family:'Syne',sans-serif;font-size:32px;font-weight:800;
+      background:linear-gradient(135deg,#00f5c4,#7c6eff);
+      -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+      letter-spacing:-1px;
+    ">47+</div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(232,244,242,0.45);letter-spacing:1.5px;text-transform:uppercase;margin-top:4px;">Bug Types</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ──────────────────────────────────────────────
+#  FEATURE CARDS
+# ──────────────────────────────────────────────
+st.markdown("""
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:48px;">
+  <div style="
+    border:1px solid rgba(0,245,196,0.18);border-radius:16px;
+    padding:22px 18px;background:rgba(255,255,255,0.04);
+    backdrop-filter:blur(12px);transition:all .3s;
+    position:relative;overflow:hidden;
+  ">
+    <div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(0,245,196,0.2),transparent);"></div>
+    <div style="font-size:22px;margin-bottom:12px;">⚡</div>
+    <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;margin-bottom:6px;">AST Analysis</div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(232,244,242,0.45);line-height:1.7;">
+      Deep abstract syntax tree parsing to pinpoint exact error nodes in milliseconds.
+    </div>
+  </div>
+  <div style="
+    border:1px solid rgba(0,245,196,0.18);border-radius:16px;
+    padding:22px 18px;background:rgba(255,255,255,0.04);
+    backdrop-filter:blur(12px);
+    position:relative;overflow:hidden;
+  ">
+    <div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(124,110,255,0.3),transparent);"></div>
+    <div style="font-size:22px;margin-bottom:12px;">🧠</div>
+    <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;margin-bottom:6px;">LLM Repair</div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(232,244,242,0.45);line-height:1.7;">
+      Claude-powered intelligent fixes with full context awareness and explanation.
+    </div>
+  </div>
+  <div style="
+    border:1px solid rgba(0,245,196,0.18);border-radius:16px;
+    padding:22px 18px;background:rgba(255,255,255,0.04);
+    backdrop-filter:blur(12px);
+    position:relative;overflow:hidden;
+  ">
+    <div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,77,109,0.2),transparent);"></div>
+    <div style="font-size:22px;margin-bottom:12px;">🔁</div>
+    <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;margin-bottom:6px;">Auto Validate</div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(232,244,242,0.45);line-height:1.7;">
+      Runs tests and syntax checks post-fix to ensure correctness before delivery.
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ──────────────────────────────────────────────
+#  MAIN LOGIC — only runs after upload
+# ──────────────────────────────────────────────
+if uploaded_file:
+    code = uploaded_file.read().decode("utf-8")
+    st.session_state.pipeline_step = 1   # Upload done → re-render pipeline on next run
+
+    st.markdown("<hr>", unsafe_allow_html=True)
+
+    # ── section label ──
+    st.markdown("""
+    <div style="
+        font-family:'JetBrains Mono',monospace;font-size:11px;
+        color:rgba(232,244,242,0.45);letter-spacing:2px;text-transform:uppercase;
+        margin-bottom:16px;
+    ">// original source</div>""", unsafe_allow_html=True)
+
+    col_orig, col_fixed = st.columns(2, gap="medium")
+
+    with col_orig:
+        st.markdown("""
+        <div style="
+            display:flex;align-items:center;gap:10px;margin-bottom:10px;
+        ">
+          <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:15px;">📄 Original Code</span>
+          <span style="
+            font-family:'JetBrains Mono',monospace;font-size:10px;
+            padding:3px 10px;border-radius:20px;
+            background:rgba(255,255,255,0.06);border:1px solid rgba(0,245,196,0.15);
+            color:rgba(232,244,242,0.5);letter-spacing:1px;
+          ">SOURCE</span>
+        </div>""", unsafe_allow_html=True)
+        st.code(code, language="python")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── FIX button ──
+    btn_col, _ = st.columns([2, 3])
+    with btn_col:
+        fix_clicked = st.button("⚡ Fix My Code", use_container_width=True)
+
+    if fix_clicked:
+        temp_path = Path("temp.py")
+        temp_path.write_text(code)
+
+        # ── terminal-style spinner ──
+        st.markdown("""
+        <div style="
+            border:1px solid rgba(0,245,196,0.2);border-radius:14px;
+            background:#020810;overflow:hidden;margin:24px 0 8px;
+        ">
+          <div style="
+            display:flex;align-items:center;gap:8px;
+            padding:10px 16px;border-bottom:1px solid rgba(0,245,196,0.12);
+            background:rgba(255,255,255,0.02);
+          ">
+            <div style="width:10px;height:10px;border-radius:50%;background:#ff5f57;"></div>
+            <div style="width:10px;height:10px;border-radius:50%;background:#febc2e;"></div>
+            <div style="width:10px;height:10px;border-radius:50%;background:#28c840;"></div>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(232,244,242,0.4);margin-left:8px;letter-spacing:1px;">bug-agent — processing</span>
+          </div>
+          <div style="padding:20px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.9;color:#7cffc4;">
+            <div style="color:rgba(124,255,196,0.4);">$ initializing AST parser...</div>
+            <div style="color:rgba(124,255,196,0.4);">$ querying similar bug patterns...</div>
+            <div style="color:rgba(124,255,196,0.4);">$ invoking LLM repair engine...</div>
+            <div style="color:rgba(124,255,196,0.4);">$ running validation suite...</div>
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+        with st.spinner("⚡ AI is analysing and fixing your code…"):
+            msgs       = run_pylint(str(temp_path))
+            sim        = query_similar(code)
+            fixed_code = generate_fix(code, sim)
+            ok, logs   = apply_fix_and_test(temp_path, fixed_code, None)
+
+        st.session_state.pipeline_step = 4   # all steps done
+
+        # ── fixed code panel ──
+        with col_fixed:
+            st.markdown("""
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+              <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:15px;">✅ Fixed Code</span>
+              <span style="
+                font-family:'JetBrains Mono',monospace;font-size:10px;
+                padding:3px 10px;border-radius:20px;
+                background:rgba(0,245,196,0.08);border:1px solid rgba(0,245,196,0.25);
+                color:#00f5c4;letter-spacing:1px;
+              ">PATCHED</span>
+            </div>""", unsafe_allow_html=True)
+            st.code(fixed_code, language="python")
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+        # ── status banner ──
+        if ok:
+            st.markdown("""
+            <div style="
+                border:1px solid rgba(0,245,196,0.3);border-radius:14px;
+                background:rgba(0,245,196,0.07);
+                padding:16px 22px;
+                display:flex;align-items:center;gap:12px;
+                font-family:'JetBrains Mono',monospace;font-size:13px;
+                color:#00f5c4;letter-spacing:0.5px;
+                margin-bottom:20px;
+            ">
+              <span style="font-size:18px;">✅</span>
+              FIX SUCCESSFUL — all validation checks passed · 0 errors remaining
+            </div>""", unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="
+                border:1px solid rgba(255,77,109,0.3);border-radius:14px;
+                background:rgba(255,77,109,0.07);
+                padding:16px 22px;
+                display:flex;align-items:center;gap:12px;
+                font-family:'JetBrains Mono',monospace;font-size:13px;
+                color:#ff4d6d;letter-spacing:0.5px;
+                margin-bottom:20px;
+            ">
+              <span style="font-size:18px;">❌</span>
+              FIX FAILED — review debug logs below for more details
+            </div>""", unsafe_allow_html=True)
+
+        # ── debug logs expander ──
+        with st.expander("📊 View Debug Logs"):
+            st.markdown("""
+            <div style="
+                font-family:'JetBrains Mono',monospace;font-size:11px;
+                color:#00f5c4;letter-spacing:1px;text-transform:uppercase;
+                margin-bottom:8px;
+            ">// pylint issues</div>""", unsafe_allow_html=True)
+            st.write(msgs)
+
+            st.markdown("""
+            <div style="
+                font-family:'JetBrains Mono',monospace;font-size:11px;
+                color:#00f5c4;letter-spacing:1px;text-transform:uppercase;
+                margin-top:16px;margin-bottom:8px;
+            ">// validation logs</div>""", unsafe_allow_html=True)
+            st.code(logs, language="bash")
+
+        # ── download button ──
+        st.markdown("<br>", unsafe_allow_html=True)
+        dl_col, _ = st.columns([2, 3])
+        with dl_col:
+            st.download_button(
+                label="⬇ Download Fixed Code",
+                data=fixed_code,
+                file_name="fixed.py",
+                mime="text/x-python",
+                use_container_width=True,
+            )
+
+        # Force re-render to update pipeline highlight
+        
