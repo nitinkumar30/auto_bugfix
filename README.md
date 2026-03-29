@@ -142,5 +142,5 @@ GROQ_API_KEY=your_api_key_here
 
 
 RUN COMMAND - python src/main.py 
-and if using after 28 march 2026 use this - 
+and if using after 28 march 2026 use this because  - User uploads file → Streamlit UI → Your pipeline runs → Show fixed code
 
