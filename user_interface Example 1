@@ -1,0 +1,101 @@
+import streamlit as st
+from pathlib import Path
+from src.detector import run_pylint
+from src.retriever import query_similar
+from src.generator import generate_fix
+from src.validator import apply_fix_and_test
+
+# -------- PAGE CONFIG --------
+st.set_page_config(
+    page_title="Auto Bug Fixer",
+    page_icon="🚀",
+    layout="wide"
+)
+
+# -------- CUSTOM CSS --------
+st.markdown("""
+<style>
+.main {
+    background-color: #0e1117;
+}
+.stButton>button {
+    background-color: #4CAF50;
+    color: white;
+    border-radius: 10px;
+    height: 3em;
+    width: 100%;
+    font-size: 16px;
+}
+.stCodeBlock {
+    border-radius: 10px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# -------- HEADER --------
+st.title("🚀 Autonomous Bug Fixing Agent")
+st.caption("Upload Python code → Detect → Fix → Validate")
+
+# -------- SIDEBAR --------
+st.sidebar.header("⚙️ Settings")
+show_logs = st.sidebar.checkbox("Show Logs", value=True)
+
+# -------- FILE UPLOAD --------
+uploaded_file = st.file_uploader("📂 Drag & Drop your Python file", type=["py"])
+
+if uploaded_file:
+    code = uploaded_file.read().decode("utf-8")
+
+    col1, col2 = st.columns(2)
+
+    # -------- ORIGINAL CODE --------
+    with col1:
+        st.subheader("📄 Original Code")
+        st.code(code, language="python")
+
+    # -------- FIX BUTTON --------
+    if st.button("🚀 Fix Code"):
+
+        temp_path = Path("temp.py")
+        temp_path.write_text(code)
+
+        with st.spinner("🔍 Analyzing and fixing code..."):
+
+            # Step 1
+            msgs = run_pylint(str(temp_path))
+
+            # Step 2
+            sim = query_similar(code)
+
+            # Step 3
+            fixed_code = generate_fix(code, sim)
+
+            # Step 4
+            ok, logs = apply_fix_and_test(temp_path, fixed_code, None)
+
+        # -------- FIXED CODE --------
+        with col2:
+            st.subheader("✅ Fixed Code")
+            st.code(fixed_code, language="python")
+
+        # -------- STATUS --------
+        if ok:
+            st.success("✅ Fix Successful")
+        else:
+            st.error("❌ Fix Failed")
+
+        # -------- LOGS --------
+        if show_logs:
+            st.subheader("📊 Logs")
+            st.write("### Pylint Issues")
+            st.write(msgs)
+
+            st.write("### Validation Logs")
+            st.code(logs)
+
+        # -------- DOWNLOAD --------
+        st.download_button(
+            "⬇️ Download Fixed Code",
+            fixed_code,
+            file_name="fixed.py"
+        )
