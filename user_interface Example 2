@@ -1,0 +1,130 @@
+import streamlit as st
+from pathlib import Path
+from src.detector import run_pylint
+from src.retriever import query_similar
+from src.generator import generate_fix
+from src.validator import apply_fix_and_test
+
+# -------- PAGE CONFIG --------
+st.set_page_config(
+    page_title="Auto Bug Fixer",
+    page_icon="🚀",
+    layout="wide"
+)
+
+# -------- CUSTOM CSS --------
+st.markdown("""
+<style>
+
+/* Background */
+.stApp {
+    background: linear-gradient(135deg, #0f172a, #020617);
+}
+
+/* Title */
+h1 {
+    text-align: center;
+    font-weight: 700;
+}
+
+/* Card style */
+.block-container {
+    padding: 2rem;
+}
+
+/* Glass effect */
+div[data-testid="stVerticalBlock"] > div {
+    background: rgba(255,255,255,0.03);
+    padding: 20px;
+    border-radius: 15px;
+    backdrop-filter: blur(10px);
+}
+
+/* Button */
+.stButton>button {
+    background: linear-gradient(90deg, #00FFAA, #00C2FF);
+    color: black;
+    border-radius: 12px;
+    height: 50px;
+    font-size: 18px;
+    font-weight: bold;
+}
+
+/* Code block */
+pre {
+    background-color: #020617 !important;
+    border-radius: 10px;
+}
+
+/* Upload box */
+section[data-testid="stFileUploader"] {
+    border: 2px dashed #00FFAA;
+    border-radius: 15px;
+    padding: 20px;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+# -------- HEADER --------
+st.title("🚀 Autonomous Bug Fixing Agent")
+st.markdown(
+    "<p style='text-align:center; color:gray;'>Upload → Detect → Fix → Validate</p>",
+    unsafe_allow_html=True
+)
+
+# -------- FILE UPLOAD --------
+uploaded_file = st.file_uploader("📂 Drag & Drop your Python file", type=["py"])
+
+if uploaded_file:
+    code = uploaded_file.read().decode("utf-8")
+
+    st.markdown("---")
+
+    col1, col2 = st.columns(2)
+
+    # ORIGINAL CODE
+    with col1:
+        st.subheader("📄 Original Code")
+        st.code(code, language="python")
+
+    # BUTTON CENTERED
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    if st.button("🚀 Fix My Code"):
+
+        temp_path = Path("temp.py")
+        temp_path.write_text(code)
+
+        with st.spinner("⚡ AI is fixing your code..."):
+            msgs = run_pylint(str(temp_path))
+            sim = query_similar(code)
+            fixed_code = generate_fix(code, sim)
+            ok, logs = apply_fix_and_test(temp_path, fixed_code, None)
+
+        # FIXED CODE
+        with col2:
+            st.subheader("✅ Fixed Code")
+            st.code(fixed_code, language="python")
+
+        st.markdown("---")
+
+        # STATUS
+        if ok:
+            st.success("✅ Fix Successful")
+        else:
+            st.error("❌ Fix Failed")
+
+        # LOGS (collapsible)
+        with st.expander("📊 View Debug Logs"):
+            st.write("### Pylint Issues")
+            st.write(msgs)
+            st.write("### Validation Logs")
+            st.code(logs)
+
+        # DOWNLOAD
+        st.download_button(
+            "⬇️ Download Fixed Code",
+            fixed_code,
+            file_name="fixed.py"
+        )
